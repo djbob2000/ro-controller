@@ -75,6 +75,8 @@ public:
     esp_err_t init() noexcept;
     esp_err_t load(AppConfig& cfg, PersistentFacts& facts, std::array<FilterState,5>& filters) noexcept;
     esp_err_t save_config(const AppConfig& cfg) noexcept;
+    esp_err_t load_admin(AdminConfig& admin) noexcept;
+    esp_err_t save_admin(const AdminConfig& admin) noexcept;
     esp_err_t save_facts(const PersistentFacts& facts) noexcept;
     esp_err_t save_filter_state(size_t index, const FilterState& state) noexcept;
     esp_err_t load_tls_identity(std::string& cert_pem, std::string& key_pem) noexcept;
