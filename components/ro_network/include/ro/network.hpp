@@ -62,6 +62,7 @@ private:
     esp_err_t start_web() noexcept;
     esp_err_t start_http_provisioning() noexcept;
     esp_err_t start_https_application() noexcept;
+    esp_err_t register_handlers() noexcept;
     void start_mqtt() noexcept;
     void stop_mqtt() noexcept;
     void publish_discovery() noexcept;
