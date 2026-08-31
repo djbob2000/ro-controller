@@ -100,7 +100,11 @@ bool Controller::is_quiet(uint16_t minute) const noexcept {
 }
 
 bool Controller::preventive_flush_due(TimeInfo time) noexcept {
-    if (!settings_.standby_flush_enabled || !time.valid || !facts_.last_membrane_flush_utc_s) return false;
+    if (!settings_.standby_flush_enabled || !time.valid) return false;
+    if (!facts_.last_membrane_flush_utc_s) {
+        facts_.last_membrane_flush_utc_s = time.utc_epoch_s;
+        return false;
+    }
     const int64_t due = *facts_.last_membrane_flush_utc_s + static_cast<int64_t>(settings_.standby_flush_interval_s);
     const bool overdue = time.utc_epoch_s >= due;
     if (!settings_.quiet_hours_enabled) return overdue;
