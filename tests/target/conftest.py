@@ -1,4 +1,5 @@
 import re
+import time
 
 
 def send(dut, command: str) -> None:
@@ -20,6 +21,18 @@ def expect_snapshot(dut, *, state: str | None = None, pump: bool | None = None,
     if flush is not None:
         assert f'"flush":{str(flush).lower()}' in text
     return text
+
+
+def wait_state(dut, state: str, timeout: float = 10.0):
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        remaining = max(0.5, min(2.0, deadline - time.monotonic()))
+        last = expect_snapshot(dut, timeout=remaining)
+        if f'"state":"{state}"' in last:
+            return last
+        time.sleep(0.2)
+    raise AssertionError(f"controller did not reach {state}; last snapshot: {last}")
 
 
 def simulate(dut, *, water: bool, tank: bool, leak: bool = False) -> None:
