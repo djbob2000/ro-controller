@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: [main, feature/complete-controller]
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure host tests
+        run: cmake -S tests/host -B build-host
+      - name: Build host tests
+        run: cmake --build build-host -j2
+      - name: Run host tests
+        run: ctest --test-dir build-host --output-on-failure
+
+  esp-idf-build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-S3 firmware
+        shell: bash
+        run: |
+          idf.py set-target esp32s3
+          idf.py build
+      - name: Collect firmware
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p firmware-artifact
+          cp build/ro_controller.bin firmware-artifact/
+          cp build/bootloader/bootloader.bin firmware-artifact/
+          cp build/partition_table/partition-table.bin firmware-artifact/
+          test -f build/ota_data_initial.bin && cp build/ota_data_initial.bin firmware-artifact/ || true
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: ro-controller-esp32s3
+          path: firmware-artifact

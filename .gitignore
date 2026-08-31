@@ -1,24 +1,9 @@
-# Build outputs
 /build/
 /build-host/
 /sdkconfig
-/sdkconfig.old
+sdkconfig.old
 /managed_components/
-/dependencies.lock
-
-# Web
-/web/node_modules/
-/web/dist/
-
-# Python
-__pycache__/
-.pytest_cache/
-*.pyc
-
-# IDE / OS
-.vscode/
-.idea/
+dependencies.lock
 .DS_Store
-
-# Local worktrees
-.worktrees/
+.idea/
+.vscode/

@@ -1,0 +1,4 @@
+idf_component_register(SRCS "app_main.cpp"
+    INCLUDE_DIRS "."
+    REQUIRES ro_app)
+target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)
