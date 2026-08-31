@@ -52,13 +52,16 @@ bool Controller::is_error_state() const noexcept {
 
 void Controller::transition(State next, uint64_t now_ms, ControllerEvents& ev) noexcept {
     if (snapshot_.state == next) return;
+    const bool resume_production =
+        next == State::Producing && snapshot_.state == State::StandbyFlush &&
+        manual_flush_return_state_ == State::Producing;
     ev.state_changed = true;
     ev.previous_state = snapshot_.state;
     ev.new_state = next;
     snapshot_.state = next;
     state_entered_ms_ = now_ms;
     if (next == State::Standby) standby_entered_ms_ = now_ms;
-    if (next == State::Producing) {
+    if (next == State::Producing && !resume_production) {
         production_started_ms_ = now_ms;
         ev.production_started = true;
     }
