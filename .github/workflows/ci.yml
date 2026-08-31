@@ -22,6 +22,28 @@ jobs:
       - name: Validate target test syntax
         run: python -m compileall -q tests/target
 
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run web tests
+        run: npm test -- --run
+      - name: Build embedded frontend
+        run: npm run build
+      - name: Verify generated asset is committed
+        working-directory: .
+        run: git diff --exit-code -- components/ro_network/include/ro/web_assets.hpp web/package-lock.json
+
   esp-idf-build:
     runs-on: ubuntu-latest
     container: espressif/idf:v6.0.2
