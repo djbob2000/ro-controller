@@ -1,0 +1,10 @@
+menu "RO Controller"
+
+config RO_TEST_HOOKS
+    bool "Enable RO bench-test hooks"
+    default n
+    help
+        Enables diagnostic hooks used only by the pytest-embedded bench suite.
+        Production firmware leaves these hooks disabled.
+
+endmenu
