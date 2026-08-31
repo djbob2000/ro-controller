@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <sys/time.h>
 
 namespace ro::svc {
 
@@ -120,7 +121,7 @@ private:
     std::string timezone_posix_{"UTC0"};
     esp_err_t read_rtc(int64_t& epoch) noexcept;
     esp_err_t write_rtc(int64_t epoch) noexcept;
-    static void sntp_sync_cb(struct timeval* tv);
+    static void sntp_sync_cb(::timeval* tv);
     static TimeService* instance_;
 };
 
