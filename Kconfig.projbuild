@@ -1,0 +1,12 @@
+menu "RO Controller"
+
+config RO_TEST_HOOKS
+    bool "Enable bench-only diagnostic input override"
+    default n
+    help
+        Enables a low-priority serial diagnostic protocol used by tests/target.
+        The protocol can read snapshots and substitute semantic pressure/leak
+        inputs, but it cannot directly drive inlet, pump, or flush GPIOs.
+        Keep disabled in production builds.
+
+endmenu
