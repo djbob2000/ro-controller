@@ -1,6 +1,7 @@
 import type { ControllerState, LoginResult } from "./types";
 
-let csrf = localStorage.getItem("roCsrf") ?? "";
+const storage = typeof localStorage === "undefined" ? null : localStorage;
+let csrf = storage?.getItem("roCsrf") ?? "";
 
 async function json<T>(url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, { credentials: "same-origin", ...init });
@@ -31,7 +32,7 @@ export async function login(password: string): Promise<void> {
     body: JSON.stringify({ password }),
   });
   csrf = result.csrf;
-  localStorage.setItem("roCsrf", csrf);
+  storage?.setItem("roCsrf", csrf);
 }
 
 export async function setup(payload: {
