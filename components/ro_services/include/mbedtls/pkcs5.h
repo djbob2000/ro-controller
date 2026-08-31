@@ -1,8 +1,8 @@
 #pragma once
 
 // Mbed TLS 4 no longer exposes the legacy public mbedtls/pkcs5.h API used by
-// the backup-encryption code. Preserve only the PBKDF2 helper ro_services uses
-// and route it through PSA Crypto, matching ESP-IDF 6's own PBKDF2 usage.
+// ro_services. Preserve only its SHA-256 PBKDF2 call surface and implement the
+// derivation with PSA Crypto, matching ESP-IDF 6's own PBKDF2 implementation.
 
 #include "mbedtls/md.h"
 #include "psa/crypto.h"
@@ -10,15 +10,13 @@
 #include <cstddef>
 #include <cstdint>
 
-static inline int mbedtls_pkcs5_pbkdf2_hmac_ext(
-    mbedtls_md_type_t md_type,
+static inline int ro_psa_pbkdf2_sha256(
     const unsigned char* password, size_t plen,
     const unsigned char* salt, size_t slen,
     unsigned int iteration_count,
-    uint32_t key_length,
+    size_t key_length,
     unsigned char* output) {
-    if (md_type != MBEDTLS_MD_SHA256 || !password || !salt || !output ||
-        iteration_count == 0U || key_length == 0U) {
+    if (!password || !salt || !output || iteration_count == 0U || key_length == 0U) {
         return -1;
     }
     if (psa_crypto_init() != PSA_SUCCESS) return -1;
@@ -45,4 +43,31 @@ static inline int mbedtls_pkcs5_pbkdf2_hmac_ext(
 cleanup:
     (void)psa_key_derivation_abort(&op);
     return status == PSA_SUCCESS ? 0 : -1;
+}
+
+static inline int mbedtls_pkcs5_pbkdf2_hmac(
+    mbedtls_md_context_t* ctx,
+    const unsigned char* password, size_t plen,
+    const unsigned char* salt, size_t slen,
+    unsigned int iteration_count,
+    size_t key_length,
+    unsigned char* output) {
+    // ro_services always initializes this context for SHA-256 immediately
+    // before calling PBKDF2. Mbed TLS 4 hides the legacy context internals, so
+    // the compatibility layer deliberately supports only that single use case.
+    if (!ctx) return -1;
+    return ro_psa_pbkdf2_sha256(
+        password, plen, salt, slen, iteration_count, key_length, output);
+}
+
+static inline int mbedtls_pkcs5_pbkdf2_hmac_ext(
+    mbedtls_md_type_t md_type,
+    const unsigned char* password, size_t plen,
+    const unsigned char* salt, size_t slen,
+    unsigned int iteration_count,
+    uint32_t key_length,
+    unsigned char* output) {
+    if (md_type != MBEDTLS_MD_SHA256) return -1;
+    return ro_psa_pbkdf2_sha256(
+        password, plen, salt, slen, iteration_count, key_length, output);
 }
