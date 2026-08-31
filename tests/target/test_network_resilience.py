@@ -2,13 +2,13 @@ import time
 
 import pytest
 
-from conftest import expect_snapshot, simulate
+from conftest import expect_snapshot, simulate, wait_state
 
 
 @pytest.mark.bench
 def test_network_loss_does_not_change_hydraulic_control(dut):
     simulate(dut, water=True, tank=False)
-    dut.expect('"state":"PRODUCING"', timeout=35)
+    wait_state(dut, "PRODUCING", timeout=35)
     expect_snapshot(dut, state="PRODUCING", pump=True, inlet=True, flush=False)
 
     dut.write("network:down")
