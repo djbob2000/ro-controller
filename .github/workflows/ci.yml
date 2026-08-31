@@ -1,11 +1,11 @@
 name: CI
 on:
   push:
-    branches: [main, feature/complete-controller]
+    branches: [main]
   pull_request:
 
 concurrency:
-  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -52,6 +52,7 @@ jobs:
       - name: Build ESP32-S3 firmware
         shell: bash
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . "$IDF_PATH/export.sh"
           idf.py set-target esp32s3
           idf.py build
@@ -78,6 +79,7 @@ jobs:
       - name: Build ESP32-S3 bench-test firmware
         shell: bash
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . "$IDF_PATH/export.sh"
           idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test.defaults" set-target esp32s3
           idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test.defaults" build
