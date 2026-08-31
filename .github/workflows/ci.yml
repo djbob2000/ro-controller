@@ -4,6 +4,10 @@ on:
     branches: [main, feature/complete-controller]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   host-tests:
     runs-on: ubuntu-latest
