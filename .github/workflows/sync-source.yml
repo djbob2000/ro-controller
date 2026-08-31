@@ -1,0 +1,30 @@
+name: Sync controller source
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [feature/complete-controller]
+    paths:
+      - .github/workflows/sync-source.yml
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/complete-controller
+      - name: Replace staging files with controller source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat sync-upload.part* | base64 -d > /tmp/source.tar.xz
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          tar -xJf /tmp/source.tar.xz -C .
+          git config user.name "ro-controller-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: implement ESP32-S3 RO controller firmware"
+          git push origin HEAD:feature/complete-controller
