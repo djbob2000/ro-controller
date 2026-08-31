@@ -2,15 +2,28 @@
 
 #include "ro/controller.hpp"
 #include "ro/services.hpp"
+#include "ro/web_assets.hpp"
 
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "mqtt_client.h"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 namespace ro::net {
+
+// The generated Preact application is committed as a C++ header so a clean
+// ESP-IDF build does not need Node.js. Keep response routing here: the legacy
+// fallback HTML in network.cpp remains harmless, while requests for `/` always
+// receive the generated build artifact.
+inline esp_err_t httpd_resp_send(httpd_req_t* req, const char* buffer, ssize_t length) {
+    if (req && req->uri && std::strcmp(req->uri, "/") == 0) {
+        return ::httpd_resp_send(req, web_assets::INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+    }
+    return ::httpd_resp_send(req, buffer, length);
+}
 
 struct Hooks {
     void* context{nullptr};
