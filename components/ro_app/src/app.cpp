@@ -11,6 +11,7 @@
 #include "esp_system.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -19,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -92,6 +94,11 @@ public:
                                     &control_task_, 1) != pdPASS) return ESP_ERR_NO_MEM;
         if (xTaskCreatePinnedToCore(&Runtime::ui_task_entry, "ro_ui", 6144, this, 5,
                                     &ui_task_, 0) != pdPASS) return ESP_ERR_NO_MEM;
+#if CONFIG_RO_TEST_HOOKS
+        if (xTaskCreatePinnedToCore(&Runtime::diagnostic_task_entry, "ro_test_diag", 4096, this, 2,
+                                    &diagnostic_task_, 0) != pdPASS) return ESP_ERR_NO_MEM;
+        ESP_LOGW(TAG, "RO TEST HOOKS ENABLED - diagnostic input override is active");
+#endif
         return ESP_OK;
     }
 
@@ -113,6 +120,13 @@ private:
     SemaphoreHandle_t snapshot_mutex_{nullptr};
     TaskHandle_t control_task_{nullptr};
     TaskHandle_t ui_task_{nullptr};
+#if CONFIG_RO_TEST_HOOKS
+    TaskHandle_t diagnostic_task_{nullptr};
+    std::atomic<bool> test_override_{false};
+    std::atomic<bool> test_water_{false};
+    std::atomic<bool> test_tank_{false};
+    std::atomic<bool> test_leak_{false};
+#endif
     SystemSnapshot published_snapshot_{};
     std::atomic<uint64_t> reboot_at_ms_{0};
     uint64_t ota_validation_deadline_ms_{0};
@@ -157,6 +171,8 @@ private:
         if (!snapshot_mutex_) return;
         if (xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
             published_snapshot_ = controller_.snapshot();
+            published_snapshot_.rtc_available = time_.rtc_available();
+            published_snapshot_.leak_available = config_.hardware.leak_enabled;
             xSemaphoreGive(snapshot_mutex_);
         }
     }
@@ -249,12 +265,25 @@ private:
         esp_restart();
     }
 
+    Inputs effective_inputs() const noexcept {
+#if CONFIG_RO_TEST_HOOKS
+        if (test_override_.load(std::memory_order_acquire)) {
+            return {
+                test_water_.load(std::memory_order_relaxed),
+                test_tank_.load(std::memory_order_relaxed),
+                test_leak_.load(std::memory_order_relaxed),
+            };
+        }
+#endif
+        return hardware_.read_inputs();
+    }
+
     void control_loop() noexcept {
         esp_task_wdt_add(nullptr);
         TickType_t wake = xTaskGetTickCount();
         for (;;) {
             const uint64_t now_ms = monotonic_ms();
-            const Inputs inputs = hardware_.read_inputs();
+            const Inputs inputs = effective_inputs();
             const TimeInfo current_time = time_.now();
 
             Command cmd{};
@@ -291,6 +320,83 @@ private:
         }
     }
 
+#if CONFIG_RO_TEST_HOOKS
+    void print_diagnostic_snapshot() noexcept {
+        const auto s = snapshot();
+        std::printf("RO_TEST {\"state\":\"%s\",\"error\":\"%s\",\"water\":%s,\"tank\":%s,\"leak\":%s,\"inlet\":%s,\"pump\":%s,\"flush\":%s}\n",
+                    to_string(s.state), to_string(s.error),
+                    s.inputs.water_available ? "true" : "false",
+                    s.inputs.tank_full ? "true" : "false",
+                    s.inputs.leak_detected ? "true" : "false",
+                    s.outputs.inlet ? "true" : "false",
+                    s.outputs.pump ? "true" : "false",
+                    s.outputs.flush ? "true" : "false");
+        std::fflush(stdout);
+    }
+
+    void diagnostic_loop() noexcept {
+        char line[160]{};
+        for (;;) {
+            if (!std::fgets(line, sizeof(line), stdin)) {
+                clearerr(stdin);
+                vTaskDelay(pdMS_TO_TICKS(50));
+                continue;
+            }
+            const size_t len = std::strlen(line);
+            while (len > 0 && (line[std::strlen(line) - 1] == '\n' || line[std::strlen(line) - 1] == '\r'))
+                line[std::strlen(line) - 1] = '\0';
+
+            if (std::strcmp(line, "snapshot") == 0) {
+                print_diagnostic_snapshot();
+                continue;
+            }
+            if (std::strcmp(line, "simulate:off") == 0) {
+                test_override_.store(false, std::memory_order_release);
+                std::puts("RO_TEST OK simulate:off");
+                std::fflush(stdout);
+                continue;
+            }
+            int water = 0, tank = 0, leak = 0;
+            if (std::sscanf(line, "simulate:water=%d,tank=%d,leak=%d", &water, &tank, &leak) >= 2) {
+                test_water_.store(water != 0, std::memory_order_relaxed);
+                test_tank_.store(tank != 0, std::memory_order_relaxed);
+                test_leak_.store(leak != 0, std::memory_order_relaxed);
+                test_override_.store(true, std::memory_order_release);
+                std::puts("RO_TEST OK simulate");
+                std::fflush(stdout);
+                continue;
+            }
+            if (std::strcmp(line, "network:down") == 0) {
+                esp_wifi_stop();
+                std::puts("RO_TEST OK network:down");
+                std::fflush(stdout);
+                continue;
+            }
+            if (std::strcmp(line, "network:up") == 0) {
+                esp_wifi_start();
+                esp_wifi_connect();
+                std::puts("RO_TEST OK network:up");
+                std::fflush(stdout);
+                continue;
+            }
+            if (std::strcmp(line, "command:flush") == 0) {
+                enqueue({CommandType::StartManualFlush, CommandSource::Local});
+                std::puts("RO_TEST OK command:flush");
+                std::fflush(stdout);
+                continue;
+            }
+            if (std::strcmp(line, "command:reset_error") == 0) {
+                enqueue({CommandType::ResetError, CommandSource::Local});
+                std::puts("RO_TEST OK command:reset_error");
+                std::fflush(stdout);
+                continue;
+            }
+            std::puts("RO_TEST ERR unknown-command");
+            std::fflush(stdout);
+        }
+    }
+#endif
+
     static void control_task_entry(void* arg) {
         static_cast<Runtime*>(arg)->control_loop();
     }
@@ -298,6 +404,12 @@ private:
     static void ui_task_entry(void* arg) {
         static_cast<Runtime*>(arg)->ui_loop();
     }
+
+#if CONFIG_RO_TEST_HOOKS
+    static void diagnostic_task_entry(void* arg) {
+        static_cast<Runtime*>(arg)->diagnostic_loop();
+    }
+#endif
 };
 
 Runtime runtime;
