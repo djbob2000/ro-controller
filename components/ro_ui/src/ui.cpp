@@ -16,7 +16,6 @@ std::array<std::string_view, 8> views(LineBuffer& b) noexcept {
 }
 
 const char* on_off(bool value) noexcept { return value ? "ON" : "OFF"; }
-const char* yes_no(bool value) noexcept { return value ? "YES" : "NO"; }
 
 const char* test_name(ServiceTest test) noexcept {
     switch (test) {
@@ -57,8 +56,12 @@ void LocalUi::render_outputs(const SystemSnapshot& s) noexcept {
     std::snprintf(b[2].data(), b[2].size(), "INLET %s", on_off(s.outputs.inlet));
     std::snprintf(b[3].data(), b[3].size(), "PUMP  %s", on_off(s.outputs.pump));
     std::snprintf(b[4].data(), b[4].size(), "FLUSH %s", on_off(s.outputs.flush));
-    std::snprintf(b[6].data(), b[6].size(), "RUNTIME %llus",
-                  static_cast<unsigned long long>(s.production_runtime_ms / 1000ULL));
+    const uint64_t runtime_minutes = s.production_runtime_ms / 60'000ULL;
+    const unsigned long long hours = runtime_minutes / 60ULL > 9999ULL
+        ? 9999ULL
+        : static_cast<unsigned long long>(runtime_minutes / 60ULL);
+    const unsigned minutes = static_cast<unsigned>(runtime_minutes % 60ULL);
+    std::snprintf(b[6].data(), b[6].size(), "RUNTIME %lluh%02um", hours, minutes);
     hw_.oled_render_lines(views(b));
 }
 
