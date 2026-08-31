@@ -40,6 +40,23 @@ enum class CommandType : uint8_t {
 };
 enum class ServiceTest : uint8_t { None, Inlet, Pump, Flush, ManualFlush };
 
+enum class Capability : uint8_t {
+    Core,
+    Rtc,
+    Leak,
+    FeedFlow,
+    PureFlow,
+    DrainFlow,
+    FeedTds,
+    PureTds,
+    Recovery,
+};
+
+struct OptionalReading {
+    bool available{false};
+    float value{0.0F};
+};
+
 struct Command {
     CommandType type{};
     CommandSource source{};
@@ -103,6 +120,17 @@ struct SystemSnapshot {
     bool ota_hold{false};
     uint64_t state_age_ms{0};
     uint64_t production_runtime_ms{0};
+
+    // Optional hardware has explicit availability semantics. An absent sensor is
+    // never represented as a numeric zero because zero may be a valid reading.
+    OptionalReading feed_flow_lpm{};
+    OptionalReading pure_flow_lpm{};
+    OptionalReading drain_flow_lpm{};
+    OptionalReading feed_tds_ppm{};
+    OptionalReading pure_tds_ppm{};
+    OptionalReading recovery_percent{};
+    bool rtc_available{false};
+    bool leak_available{false};
 };
 
 struct ControllerEvents {
