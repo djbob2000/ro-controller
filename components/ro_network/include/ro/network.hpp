@@ -35,6 +35,24 @@ public:
     bool mqtt_connected() const noexcept { return mqtt_connected_; }
     const char* ip_address() const noexcept { return ip_address_.c_str(); }
 
+    // C callbacks registered with ESP-IDF's HTTP server. Public only because the
+    // C API requires plain function pointers; they delegate immediately to user_ctx.
+    static esp_err_t root_handler(httpd_req_t* req);
+    static esp_err_t state_handler(httpd_req_t* req);
+    static esp_err_t login_handler(httpd_req_t* req);
+    static esp_err_t setup_handler(httpd_req_t* req);
+    static esp_err_t settings_get_handler(httpd_req_t* req);
+    static esp_err_t settings_put_handler(httpd_req_t* req);
+    static esp_err_t action_flush_handler(httpd_req_t* req);
+    static esp_err_t action_reset_handler(httpd_req_t* req);
+    static esp_err_t events_handler(httpd_req_t* req);
+    static esp_err_t stats_handler(httpd_req_t* req);
+    static esp_err_t filters_handler(httpd_req_t* req);
+    static esp_err_t filter_reset_handler(httpd_req_t* req);
+    static esp_err_t ota_handler(httpd_req_t* req);
+    static esp_err_t backup_handler(httpd_req_t* req);
+    static esp_err_t restore_handler(httpd_req_t* req);
+
 private:
     svc::Store& store_;
     svc::AppConfig& config_;
@@ -62,7 +80,6 @@ private:
     esp_err_t start_web() noexcept;
     esp_err_t start_http_provisioning() noexcept;
     esp_err_t start_https_application() noexcept;
-    esp_err_t register_handlers() noexcept;
     void start_mqtt() noexcept;
     void stop_mqtt() noexcept;
     void publish_discovery() noexcept;
@@ -73,22 +90,6 @@ private:
 
     static void wifi_event(void* arg, esp_event_base_t base, int32_t id, void* data);
     static void mqtt_event(void* handler_args, esp_event_base_t base, int32_t id, void* event_data);
-
-    static esp_err_t root_handler(httpd_req_t* req);
-    static esp_err_t state_handler(httpd_req_t* req);
-    static esp_err_t login_handler(httpd_req_t* req);
-    static esp_err_t setup_handler(httpd_req_t* req);
-    static esp_err_t settings_get_handler(httpd_req_t* req);
-    static esp_err_t settings_put_handler(httpd_req_t* req);
-    static esp_err_t action_flush_handler(httpd_req_t* req);
-    static esp_err_t action_reset_handler(httpd_req_t* req);
-    static esp_err_t events_handler(httpd_req_t* req);
-    static esp_err_t stats_handler(httpd_req_t* req);
-    static esp_err_t filters_handler(httpd_req_t* req);
-    static esp_err_t filter_reset_handler(httpd_req_t* req);
-    static esp_err_t ota_handler(httpd_req_t* req);
-    static esp_err_t backup_handler(httpd_req_t* req);
-    static esp_err_t restore_handler(httpd_req_t* req);
 
     static NetworkManager* self(httpd_req_t* req) noexcept;
     static std::string read_body(httpd_req_t* req, size_t max_bytes = 16 * 1024);
