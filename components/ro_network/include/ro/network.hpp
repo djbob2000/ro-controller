@@ -15,15 +15,31 @@
 namespace ro::net {
 
 // The generated Preact application is committed as a C++ header so a clean
-// ESP-IDF build does not need Node.js. Keep response routing here: the legacy
-// fallback HTML in network.cpp remains harmless, while requests for `/` always
-// receive the generated build artifact.
-inline esp_err_t httpd_resp_send(httpd_req_t* req, const char* buffer, ssize_t length) {
-    if (req && req->uri && std::strcmp(req->uri, "/") == 0) {
-        return ::httpd_resp_send(req, web_assets::INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+// ESP-IDF build does not need Node.js. A callable object intentionally shadows
+// the C function inside this namespace: ordinary lookup then suppresses ADL,
+// avoiding an ambiguous call with ESP-IDF 6 while preserving the root response
+// interception used to serve the generated application.
+struct HttpdResponseSender {
+    esp_err_t operator()(httpd_req_t* req, const char* buffer, ssize_t length) const noexcept {
+        if (req && std::strcmp(req->uri, "/") == 0) {
+            return ::httpd_resp_send(req, web_assets::INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+        }
+        return ::httpd_resp_send(req, buffer, length);
     }
-    return ::httpd_resp_send(req, buffer, length);
-}
+};
+inline constexpr HttpdResponseSender httpd_resp_send{};
+
+// ESP-IDF 6 gives the MQTT event parameter a strongly typed enum while the
+// generic ESP event constant remains an int. Keep the call site concise and
+// make the conversion explicit at the adapter boundary.
+struct MqttEventRegistrar {
+    esp_err_t operator()(esp_mqtt_client_handle_t client, int event,
+                         esp_event_handler_t handler, void* handler_args) const noexcept {
+        return ::esp_mqtt_client_register_event(
+            client, static_cast<esp_mqtt_event_id_t>(event), handler, handler_args);
+    }
+};
+inline constexpr MqttEventRegistrar esp_mqtt_client_register_event{};
 
 struct Hooks {
     void* context{nullptr};
