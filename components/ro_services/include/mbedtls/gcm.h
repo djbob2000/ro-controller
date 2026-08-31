@@ -1,25 +1,15 @@
 #pragma once
 
 // ESP-IDF 6 ships Mbed TLS 4 with the legacy public mbedtls/gcm.h API removed.
-// ro_services still uses the compact Mbed TLS 3 GCM call shape for encrypted
-// backup envelopes, so keep that call site stable while routing the actual
-// cryptography through the supported PSA Crypto API.
+// Keep the small legacy call surface used by ro_services, but implement it with
+// the supported PSA Crypto AEAD API.
 
-#include "mbedtls/base64.h"
-#include "mbedtls/md.h"
-#include "mbedtls/pk.h"
-#include "mbedtls/pkcs5.h"
-#include "mbedtls/rsa.h"
-#include "mbedtls/x509_crt.h"
-#include "mbedtls/x509write.h"
 #include "psa/crypto.h"
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 
-// These identifiers were supplied by the removed legacy GCM/cipher headers.
-// They are intentionally local compatibility constants; the PSA adapter below
-// only accepts AES and maps it to PSA_KEY_TYPE_AES / PSA_ALG_GCM.
 #ifndef MBEDTLS_CIPHER_ID_AES
 #define MBEDTLS_CIPHER_ID_AES 1
 #endif
