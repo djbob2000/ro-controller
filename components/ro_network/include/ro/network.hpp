@@ -71,9 +71,14 @@ private:
     std::string tls_cert_;
     std::string tls_key_;
     std::string session_token_;
+    std::string csrf_token_;
     uint64_t session_expires_ms_{0};
     uint64_t last_publish_ms_{0};
+    uint64_t last_heartbeat_ms_{0};
+    std::string last_state_payload_;
+    std::string device_id_{"unknown"};
     std::string mqtt_uri_;
+    std::string mqtt_root_;
     std::string mqtt_lwt_topic_;
 
     esp_err_t start_wifi() noexcept;
@@ -86,6 +91,8 @@ private:
     void publish_state(bool force = false) noexcept;
     std::string state_json() const;
     bool authorized(httpd_req_t* req) noexcept;
+    bool write_authorized(httpd_req_t* req) noexcept;
+    bool origin_allowed(httpd_req_t* req) const noexcept;
     bool session_valid() const noexcept;
 
     static void wifi_event(void* arg, esp_event_base_t base, int32_t id, void* data);
