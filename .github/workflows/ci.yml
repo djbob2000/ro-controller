@@ -19,6 +19,8 @@ jobs:
         run: cmake --build build-host -j2
       - name: Run host tests
         run: ctest --test-dir build-host --output-on-failure
+      - name: Validate target test syntax
+        run: python -m compileall -q tests/target
 
   esp-idf-build:
     runs-on: ubuntu-latest
@@ -45,3 +47,15 @@ jobs:
         with:
           name: ro-controller-esp32s3
           path: firmware-artifact
+
+  esp-idf-test-hooks-build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-S3 bench-test firmware
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test.defaults" set-target esp32s3
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test.defaults" build
