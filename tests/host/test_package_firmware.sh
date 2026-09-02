@@ -22,7 +22,7 @@ cat > "$build_dir/flash_args" <<'EOF'
 EOF
 printf '{"flash_files":{}}\n' > "$build_dir/flasher_args.json"
 
-"$repo_root/scripts/package-firmware.sh" "$build_dir" "$out_dir"
+bash "$repo_root/scripts/package-firmware.sh" "$build_dir" "$out_dir"
 
 for file in \
   ro_controller.bin \
