@@ -14,29 +14,46 @@
 
 namespace ro::net {
 
-// The generated Preact application is committed as a C++ header so a clean
-// ESP-IDF build does not need Node.js. A callable object intentionally shadows
-// the C function inside this namespace: ordinary lookup then suppresses ADL,
-// avoiding an ambiguous call with ESP-IDF 6 while preserving the root response
-// interception used to serve the generated application.
+// Central response adapter keeps generated web assets and the SSE wire format
+// out of the large ESP-IDF route implementation while delegating all other
+// responses to the native HTTP server unchanged.
 struct HttpdResponseSender {
     esp_err_t operator()(httpd_req_t* req, const char* buffer, ssize_t length) const noexcept {
         if (req && std::strcmp(req->uri, "/") == 0) {
             return ::httpd_resp_send(req, web_assets::INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+        }
+        if (req && std::strcmp(req->uri, "/api/events") == 0 && buffer) {
+            const size_t n = length == HTTPD_RESP_USE_STRLEN ? std::strlen(buffer) : static_cast<size_t>(length);
+            std::string framed{"retry: 2000\n\n"};
+            size_t start = 0;
+            while (start < n) {
+                size_t end = start;
+                while (end < n && buffer[end] != '\n') ++end;
+                if (end > start) {
+                    framed += "event: log\ndata: ";
+                    framed.append(buffer + start, end - start);
+                    framed += "\n\n";
+                }
+                start = end + 1;
+            }
+            return ::httpd_resp_send(req, framed.data(), static_cast<ssize_t>(framed.size()));
         }
         return ::httpd_resp_send(req, buffer, length);
     }
 };
 inline constexpr HttpdResponseSender httpd_resp_send{};
 
-// ESP-IDF 6 gives the MQTT event parameter a strongly typed enum while the
-// generic ESP event constant remains an int. Keep the call site concise and
-// make the conversion explicit at the adapter boundary.
+struct HttpdTypeSetter {
+    esp_err_t operator()(httpd_req_t* req, const char* type) const noexcept {
+        if (req && std::strcmp(req->uri, "/api/events") == 0) return ::httpd_resp_set_type(req, "text/event-stream");
+        return ::httpd_resp_set_type(req, type);
+    }
+};
+inline constexpr HttpdTypeSetter httpd_resp_set_type{};
+
 struct MqttEventRegistrar {
-    esp_err_t operator()(esp_mqtt_client_handle_t client, int event,
-                         esp_event_handler_t handler, void* handler_args) const noexcept {
-        return ::esp_mqtt_client_register_event(
-            client, static_cast<esp_mqtt_event_id_t>(event), handler, handler_args);
+    esp_err_t operator()(esp_mqtt_client_handle_t client, int event, esp_event_handler_t handler, void* handler_args) const noexcept {
+        return ::esp_mqtt_client_register_event(client, static_cast<esp_mqtt_event_id_t>(event), handler, handler_args);
     }
 };
 inline constexpr MqttEventRegistrar esp_mqtt_client_register_event{};
@@ -56,7 +73,6 @@ public:
     NetworkManager(svc::Store& store, svc::AppConfig& config, svc::TimeService& time,
                    svc::EventLog& events, svc::StatisticsService& stats,
                    svc::FilterService& filters, Hooks hooks) noexcept;
-
     esp_err_t init() noexcept;
     void publish_periodic(uint64_t now_ms) noexcept;
     bool wifi_connected() const noexcept { return wifi_connected_; }
@@ -64,8 +80,6 @@ public:
     bool mqtt_connected() const noexcept { return mqtt_connected_; }
     const char* ip_address() const noexcept { return ip_address_.c_str(); }
 
-    // C callbacks registered with ESP-IDF's HTTP server. Public only because the
-    // C API requires plain function pointers; they delegate immediately to user_ctx.
     static esp_err_t root_handler(httpd_req_t* req);
     static esp_err_t state_handler(httpd_req_t* req);
     static esp_err_t login_handler(httpd_req_t* req);
@@ -83,50 +97,22 @@ public:
     static esp_err_t restore_handler(httpd_req_t* req);
 
 private:
-    svc::Store& store_;
-    svc::AppConfig& config_;
-    svc::TimeService& time_;
-    svc::EventLog& events_;
-    svc::StatisticsService& stats_;
-    svc::FilterService& filters_;
-    Hooks hooks_{};
+    svc::Store& store_; svc::AppConfig& config_; svc::TimeService& time_; svc::EventLog& events_;
+    svc::StatisticsService& stats_; svc::FilterService& filters_; Hooks hooks_{};
+    httpd_handle_t server_{nullptr}; esp_mqtt_client_handle_t mqtt_{nullptr};
+    bool wifi_connected_{false}; bool provisioning_mode_{false}; bool mqtt_connected_{false};
+    std::string ip_address_{"--"}; std::string tls_cert_; std::string tls_key_;
+    std::string session_token_; std::string csrf_token_; uint64_t session_expires_ms_{0};
+    uint64_t last_publish_ms_{0}; uint64_t last_heartbeat_ms_{0}; std::string last_state_payload_;
+    std::string device_id_{"unknown"}; std::string mqtt_uri_; std::string mqtt_root_; std::string mqtt_lwt_topic_;
 
-    httpd_handle_t server_{nullptr};
-    esp_mqtt_client_handle_t mqtt_{nullptr};
-    bool wifi_connected_{false};
-    bool provisioning_mode_{false};
-    bool mqtt_connected_{false};
-    std::string ip_address_{"--"};
-    std::string tls_cert_;
-    std::string tls_key_;
-    std::string session_token_;
-    std::string csrf_token_;
-    uint64_t session_expires_ms_{0};
-    uint64_t last_publish_ms_{0};
-    uint64_t last_heartbeat_ms_{0};
-    std::string last_state_payload_;
-    std::string device_id_{"unknown"};
-    std::string mqtt_uri_;
-    std::string mqtt_root_;
-    std::string mqtt_lwt_topic_;
-
-    esp_err_t start_wifi() noexcept;
-    esp_err_t start_web() noexcept;
-    esp_err_t start_http_provisioning() noexcept;
-    esp_err_t start_https_application() noexcept;
-    void start_mqtt() noexcept;
-    void stop_mqtt() noexcept;
-    void publish_discovery() noexcept;
-    void publish_state(bool force = false) noexcept;
-    std::string state_json() const;
-    bool authorized(httpd_req_t* req) noexcept;
-    bool write_authorized(httpd_req_t* req) noexcept;
-    bool origin_allowed(httpd_req_t* req) const noexcept;
-    bool session_valid() const noexcept;
-
+    esp_err_t start_wifi() noexcept; esp_err_t start_web() noexcept; esp_err_t start_http_provisioning() noexcept;
+    esp_err_t start_https_application() noexcept; void start_mqtt() noexcept; void stop_mqtt() noexcept;
+    void publish_discovery() noexcept; void publish_state(bool force = false) noexcept; std::string state_json() const;
+    bool authorized(httpd_req_t* req) noexcept; bool write_authorized(httpd_req_t* req) noexcept;
+    bool origin_allowed(httpd_req_t* req) const noexcept; bool session_valid() const noexcept;
     static void wifi_event(void* arg, esp_event_base_t base, int32_t id, void* data);
     static void mqtt_event(void* handler_args, esp_event_base_t base, int32_t id, void* event_data);
-
     static NetworkManager* self(httpd_req_t* req) noexcept;
     static std::string read_body(httpd_req_t* req, size_t max_bytes = 16 * 1024);
     static esp_err_t send_json(httpd_req_t* req, const std::string& json, const char* status = "200 OK");
