@@ -13,3 +13,4 @@ endfunction()
 
 add_ro_host_test(ro_host_tests test_core.cpp)
 add_ro_host_test(ro_regression_tests test_regressions.cpp)
+add_ro_host_test(ro_plan_regression_tests test_plan_regressions.cpp)
