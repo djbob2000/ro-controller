@@ -7,6 +7,7 @@
 #include "ro/services.hpp"
 #include "ro/ui.hpp"
 
+#include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -23,6 +24,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <optional>
 #include <string>
@@ -38,6 +40,23 @@ constexpr std::array<gpio_num_t, 3> FLOW_PINS{GPIO_NUM_4, GPIO_NUM_5, GPIO_NUM_1
 
 uint64_t monotonic_ms() noexcept {
     return static_cast<uint64_t>(esp_timer_get_time() / 1000);
+}
+
+int64_t local_calendar_epoch(int64_t utc_epoch) noexcept {
+    if (utc_epoch <= 0) return 0;
+    const time_t utc = static_cast<time_t>(utc_epoch);
+    std::tm local{};
+    localtime_r(&utc, &local);
+    return static_cast<int64_t>(timegm(&local));
+}
+
+void preload_safe_output_latches(const hw::HardwareConfig& cfg) noexcept {
+    // ESP32 GPIOs start high-impedance. Load the OFF level into the output
+    // latch before Hardware::init() switches the pins to output mode so an
+    // active-low relay/MOSFET cannot receive a short ON pulse during boot.
+    gpio_set_level(GPIO_NUM_13, cfg.inlet_active_high ? 0 : 1);
+    gpio_set_level(GPIO_NUM_14, cfg.pump_active_high ? 0 : 1);
+    gpio_set_level(GPIO_NUM_15, cfg.flush_active_high ? 0 : 1);
 }
 
 bool same_facts(const PersistentFacts& a, const PersistentFacts& b) noexcept {
@@ -81,6 +100,7 @@ public:
         ESP_RETURN_ON_ERROR(store_.load_admin(config_.admin), TAG, "admin load failed");
         queued_facts_ = facts_;
 
+        preload_safe_output_latches(config_.hardware);
         ESP_RETURN_ON_ERROR(hardware_.init(config_.hardware), TAG, "hardware init failed");
         hardware_.force_all_off();
 
@@ -146,6 +166,8 @@ public:
 private:
     svc::Store store_{};
     svc::AppConfig config_{};
+    svc::AdminConfig pending_admin_{};
+    bool pending_admin_save_{false};
     PersistentFacts facts_{};
     PersistentFacts queued_facts_{};
     std::array<svc::FilterState,5> filter_states_{};
@@ -278,9 +300,24 @@ private:
 
     esp_err_t apply_config(const std::string& json) noexcept {
         svc::AppConfig next = config_;
-        const esp_err_t err = store_.apply_config_json(json, next, true);
-        if (err != ESP_OK) return err;
-        ESP_RETURN_ON_ERROR(store_.save_config(next), TAG, "save config failed");
+        const esp_err_t decode_err = store_.apply_config_json(json, next, true);
+        if (decode_err != ESP_OK) {
+            pending_admin_ = {};
+            pending_admin_save_ = false;
+            return decode_err;
+        }
+
+        esp_err_t save_err = ESP_OK;
+        if (pending_admin_save_) {
+            next.admin = pending_admin_;
+            save_err = store_.save_provisioned(next);
+            pending_admin_ = {};
+            pending_admin_save_ = false;
+        } else {
+            save_err = store_.save_config(next);
+        }
+        if (save_err != ESP_OK) return save_err;
+
         reboot_at_ms_.store(monotonic_ms() + 1500, std::memory_order_release);
         return ESP_OK;
     }
@@ -288,7 +325,11 @@ private:
     esp_err_t set_admin_password(const std::string& password) noexcept {
         svc::AppConfig temporary = config_;
         if (!svc::Security::set_admin_password(temporary, password)) return ESP_ERR_INVALID_ARG;
-        return store_.save_admin(temporary.admin);
+        // Provisioning stages the verifier in RAM. apply_config() commits the
+        // verifier and Wi-Fi/settings in one NVS transaction.
+        pending_admin_ = temporary.admin;
+        pending_admin_save_ = true;
+        return ESP_OK;
     }
 
     esp_err_t reset_filter(size_t index) noexcept {
@@ -333,7 +374,7 @@ private:
             std::snprintf(message, sizeof(message), "state %s -> %s",
                           to_string(ev.previous_state), to_string(ev.new_state));
             events_.append(epoch, message);
-            stats_.on_transition(ev.previous_state, ev.new_state, epoch);
+            stats_.on_transition(ev.previous_state, ev.new_state, local_calendar_epoch(epoch));
             if (ev.new_state == State::Standby) checkpoint_requested = true;
         }
         if (ev.error_latched) {
@@ -449,7 +490,7 @@ private:
             publish_snapshot();
 
             if (current_time.valid && current_time.utc_epoch_s != last_stats_epoch_) {
-                queue_stats_sample(published_snapshot_, current_time.utc_epoch_s);
+                queue_stats_sample(published_snapshot_, local_calendar_epoch(current_time.utc_epoch_s));
                 last_stats_epoch_ = current_time.utc_epoch_s;
             }
 
