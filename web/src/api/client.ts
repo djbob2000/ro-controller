@@ -57,7 +57,12 @@ export const getFilters = () => json<unknown[]>("/api/filters");
 export async function getEvents(): Promise<string> {
   const response = await fetch("/api/events", { credentials: "same-origin" });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.text();
+  const body = await response.text();
+  if (!response.headers.get("content-type")?.includes("text/event-stream")) return body;
+  return body.split(/\r?\n/)
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice(6))
+    .join("\n");
 }
 
 export async function postAction(path: "/api/actions/flush" | "/api/actions/reset-error"): Promise<void> {
