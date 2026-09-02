@@ -21,6 +21,8 @@ jobs:
         run: ctest --test-dir build-host --output-on-failure
       - name: Validate target test syntax
         run: python -m compileall -q tests/target
+      - name: Test firmware packaging
+        run: bash tests/host/test_package_firmware.sh
 
   web:
     runs-on: ubuntu-latest
